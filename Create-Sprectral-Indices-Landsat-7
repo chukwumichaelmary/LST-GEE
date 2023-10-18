@@ -1,0 +1,109 @@
+// Load study area
+var nglayer = ee.FeatureCollection('users/mchukwu/NGA_adm2')
+var ethiope =nglayer.filter(ee.Filter.or(
+              ee.Filter.eq('NAME_2','EthiopeE'),
+              ee.Filter.eq('NAME_2','Ethiope West')))
+Map.addLayer(ethiope,{},'Ethiope LGA')
+
+var startyear = '2012-01-01'
+var endyear = '2012-12-31'
+
+//cloud mask
+function maskL7sr(col) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 4);
+  var cloudsBitMask = (1 << 3);
+  // Get the pixel QA band.
+  var qa = col.select('QA_PIXEL');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return col.updateMask(mask);
+}
+
+//load the collection:
+ {
+var col = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+.map(maskL7sr)
+.filterDate(startyear,endyear)
+.filterBounds(ethiope);
+}
+print(col, 'coleccion');
+
+//image reduction
+{
+var image = col.mean();
+print(image, 'image');
+//Map.addLayer(image.clip(ethiope), vizParams2);
+}
+
+
+//       NDVI
+{
+var ndvi = image.normalizedDifference(['SR_B4', 
+'SR_B3']).rename('NDVI');
+var ndviParams = {min: -1, max: 1, palette: ['blue', 'white', 
+'green']};
+print(ndvi,'ndvi');
+}
+
+// find the mean of NDVI
+{
+var mean = ee.Number(ndvi.reduceRegion({
+reducer: ee.Reducer.mean(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(mean, 'mean');}
+
+//      NDWI
+{
+var ndwi = image.normalizedDifference(['SR_B2', 
+'SR_B4']).rename('NDWI');
+print(ndwi,'ndwi');
+}
+
+// find the mean of NDWI
+{
+var mean = ee.Number(ndwi.reduceRegion({
+reducer: ee.Reducer.mean(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(mean, 'mean');}
+
+//      NDBI
+{
+var ndbi = image.normalizedDifference(['SR_B5', 
+'SR_B4']).rename('NDBI');
+print(ndbi,'ndbi');
+}
+
+// find the mean of NDBI
+{
+var mean = ee.Number(ndbi.reduceRegion({
+reducer: ee.Reducer.mean(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(mean, 'mean');}
+
+//       NDBAI
+{
+var ndbai = image.normalizedDifference(['SR_B5', 
+'ST_B6']).rename('NDBAI');
+print(ndbai,'ndbai');
+}
+
+// find the mean of NDBAI
+{
+var mean = ee.Number(ndbai.reduceRegion({
+reducer: ee.Reducer.mean(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(mean, 'mean');}
