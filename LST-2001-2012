@@ -1,0 +1,139 @@
+// Load study area
+var nglayer = ee.FeatureCollection('users/mchukwu/NGA_adm2')
+var ethiope =nglayer.filter(ee.Filter.or(
+              ee.Filter.eq('NAME_2','EthiopeE'),
+              ee.Filter.eq('NAME_2','Ethiope West')))
+Map.addLayer(ethiope,{},'Ethiope LGA',false)
+
+
+//cloud mask
+function maskL8sr(col) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 3);
+  var cloudsBitMask = (1 << 5);
+  // Get the pixel QA band.
+  var qa = col.select('pixel_qa');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return col.updateMask(mask);
+}
+
+//vis params
+var vizParams = {
+bands: ['B4', 'B6', 'B3'],
+min: 0,
+max: 4000,
+gamma: [1, 0.9, 1.1]
+};
+
+var vizParams2 = {
+bands: ['B4', 'B3', 'B2'],
+min: 0,
+max: 3000,
+gamma: 1.4,
+};
+
+//load the collection:
+ {
+var col = ee.ImageCollection("LANDSAT/LE07/C01/T1_SR")
+.map(maskL8sr)
+.filterDate('2001-01-01','2001-12-31')
+.filterBounds(ethiope);
+}
+print(col, 'coleccion');
+
+//image reduction
+{
+var image = col.mean();
+print(image, 'image');
+Map.addLayer(image.clip(ethiope), vizParams2,false);
+}
+
+
+//median
+{
+var ndvi = image.normalizedDifference(['B4', 
+'B3']).rename('NDVI');
+var ndviParams = {min: 0.23480580165613912, max: 0.6672953111790336, palette: ['blue', 'white', 
+'green']};
+print(ndvi,'ndvi');
+Map.addLayer(ndvi.clip(ethiope), ndviParams, 'ndvi');
+}
+
+//select thermal band 10(with brightness tempereature), no calculation 
+var thermal= image.select('B6').multiply(0.1);
+var b10Params = {min: 291.918, max: 302.382, palette: ['blue', 
+'white', 'green']};
+Map.addLayer(thermal.clip(ethiope), b10Params, 'thermal',false);
+
+// find the min and max of NDVI
+{
+var min = ee.Number(ndvi.reduceRegion({
+reducer: ee.Reducer.min(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(min, 'min');
+var max = ee.Number(ndvi.reduceRegion({
+reducer: ee.Reducer.max(),
+geometry: ethiope,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(max, 'max')
+}
+
+//fractional vegetation
+{
+var fv =(ndvi.subtract(min).divide(max.subtract(min))).pow(ee.Number(2)).rename('FV'); 
+print(fv, 'fv');
+Map.addLayer(fv.clip(ethiope),{},'fv',false);
+}
+
+//Emissivity
+
+var a= ee.Number(0.004);
+var b= ee.Number(0.986);
+var EM=fv.multiply(a).add(b).rename('EMM');
+var imageVisParam3 = {min: 0.9865619146722164, max:0.989699971371314};
+Map.addLayer(EM.clip(ethiope), imageVisParam3,'EMM',false);
+
+//LST in Celsius Degree bring -273.15
+//NB: In Kelvin don't bring -273.15
+var LST = thermal.expression(
+'(Tb/(1 + (0.00115* (Tb / 1.438))*log(Ep)))-273.15', {
+ 'Tb': thermal.select('B6'),
+'Ep': EM.select('EMM')
+}).rename('LST');
+Map.addLayer(LST.clip(ethiope), {min:17.095614615452575,max:30.209227900692156,palette: [
+'040274', '040281', '0502a3', '0502b8', '0502ce', '0502e6',
+'0602ff', '235cb1', '307ef3', '269db1', '30c8e2', '32d3ef',
+'3be285', '3ff38f', '86e26f', '3ae237', 'b5e22e', 'd6e21f',
+'fff705', 'ffd611', 'ffb613', 'ff8b13', 'ff6e08', 'ff500d',
+'ff0000', 'de0101', 'c21301', 'a71001', '911003'
+ ]},'LST');
+ 
+Map.centerObject(ethiope,false)
+
+// Compute LST statistics
+
+var mLST = LST.reduceRegion({
+  reducer:ee.Reducer.mean(), 
+  geometry:ethiope, 
+  scale:30, 
+  maxPixels:1e9
+})
+
+print('print mLST',mLST)
+
+//Export toDrive
+
+Export.image.toDrive({
+  image: LST, 
+  description:'mLST (2001-2001)',
+  region:ethiope, 
+  scale:30, 
+  maxPixels:1e9
+  })
